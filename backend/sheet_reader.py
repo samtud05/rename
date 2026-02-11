@@ -23,27 +23,56 @@ def read_creative_names_from_excel(
     if sheet_name and sheet_name in sheets:
         df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
     else:
-        # Try first few sheets to find one with many rows and a name-like column
+        # Prefer sheet whose name looks like trafficking (T1, NCL, TS, etc.)
+        def _score_sheet(name: str) -> int:
+            n = name.upper()
+            if "T1" in n or "NCL" in n or "TRAFFIC" in n or "TS " in n or "CREATIVE" in n:
+                return 2
+            if "T-" in n or "SHEET" in n:
+                return 1
+            return 0
+
+        # Try all sheets; prefer T1/NCL-style sheets and columns with CM360-style names (underscores, no pipes)
         df = None
-        for name in sheets[:5]:
+        best = (-1, -1)  # (sheet_score, n_cm360_like)
+        for name in sheets:
             d = pd.read_excel(xl, sheet_name=name, header=None)
-            if d.shape[0] < 5:
+            if d.shape[0] < 10:
                 continue
             col = _find_creative_column(d, column_header, column_index)
             if col is not None:
-                df = d
-                break
+                names_col = d.iloc[:, col].dropna().astype(str).str.strip()
+                names_col = names_col[names_col.str.len() > 5]
+                names_col = names_col[names_col.str.contains("_", na=False)]
+                names_col = names_col[~names_col.str.contains("\\|", regex=True, na=False)]  # exclude pipe-separated
+                cm360_like = names_col.str.match(r"^[A-Za-z0-9]+_[A-Za-z0-9]+_.*_.*", na=False)
+                n_like = int(cm360_like.sum())
+                n_uniq = len(names_col.unique())
+                sheet_score = _score_sheet(name)
+                if n_uniq >= 3 and n_like >= 3 and (sheet_score, n_like) > best:
+                    best = (sheet_score, n_like)
+                    df = d
         if df is None:
             df = pd.read_excel(xl, sheet_name=sheets[0], header=None)
     col = _find_creative_column(df, column_header, column_index)
     if col is None:
-        raise ValueError("Could not find CM360 Creative Name column. Try specifying sheet name or column.")
+        raise ValueError(
+            "Could not find a column with CM360 creative names. "
+            "Your T-sheet should have a column with names like 'Country_Campaign_Platform_CreativeID_Size' (e.g. with underscores)."
+        )
     names = df.iloc[:, col].dropna().astype(str).str.strip()
     names = names[names.str.len() > 2]
     # Drop header-like rows
-    names = names[~names.str.match(r"^(CREATIVE NAME|SIZE|PLACEMENT|DISPLAY)", case=False, na=False)]
+    names = names[~names.str.match(r"^(CREATIVE NAME|SIZE|PLACEMENT|DISPLAY|PLACEMENT NAME)", case=False, na=False)]
     names = names[~names.str.match(r"^\d{4}-\d{2}-\d{2}", na=False)]  # dates
-    return names.unique().tolist()
+    names = names[names.str.contains("_", na=False)]  # CM360 names typically have underscores
+    result = names.unique().tolist()
+    if not result:
+        raise ValueError(
+            "No creative names found in the sheet. "
+            "Check that the sheet has a column with CM360-style names (e.g. 'UnitedKingdom_Q12026_Yahoo_Google_CreativeID_120x600')."
+        )
+    return result
 
 
 def _find_creative_column(
@@ -63,6 +92,13 @@ def _find_creative_column(
             for c in range(df.shape[1]):
                 if pd.notna(df.iloc[r, c]) and h in str(df.iloc[r, c]).lower():
                     return c
+    # Common in trafficking sheets: creative name in column 17 (0-based)
+    if df.shape[1] > 17 and df.shape[0] > 20:
+        c = 17
+        vals = df.iloc[:, c].dropna().astype(str).str.strip()
+        with_underscore = vals[vals.str.contains("_", na=False)]
+        if len(with_underscore.unique()) >= 3:
+            return c
     # Heuristic: column with many unique strings containing underscore (CM360 style)
     best = None
     best_count = 0

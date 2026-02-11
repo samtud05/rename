@@ -2,6 +2,15 @@ import { useState, useCallback } from 'react'
 
 const API = '/api'
 
+function parseErrorResponse(text) {
+  try {
+    const j = JSON.parse(text)
+    if (j && typeof j.detail === 'string') return j.detail
+    if (j && Array.isArray(j.detail)) return j.detail.map((d) => d.msg || String(d)).join('. ')
+  } catch (_) {}
+  return text || 'Something went wrong.'
+}
+
 export default function App() {
   const [zipFile, setZipFile] = useState(null)
   const [sheetFile, setSheetFile] = useState(null)
@@ -29,6 +38,15 @@ export default function App() {
       setError('Please select both a creatives ZIP and a T-sheet (Excel or CSV).')
       return
     }
+    if (!zipFile.name.toLowerCase().endsWith('.zip')) {
+      setError('Creatives file must be a ZIP archive.')
+      return
+    }
+    const sheetLower = sheetFile.name.toLowerCase()
+    if (!sheetLower.endsWith('.xlsx') && !sheetLower.endsWith('.xls') && !sheetLower.endsWith('.csv')) {
+      setError('T-sheet must be an Excel file (.xlsx, .xls) or CSV.')
+      return
+    }
     setLoading(true)
     setError(null)
     setPreview(null)
@@ -43,7 +61,7 @@ export default function App() {
       })
       if (!r.ok) {
         const t = await r.text()
-        throw new Error(t || r.statusText)
+        throw new Error(parseErrorResponse(t))
       }
       const data = await r.json()
       setPreview(data)
@@ -64,7 +82,7 @@ export default function App() {
       form.append('sheet', sheetFile)
       form.append('threshold', (threshold / 100).toString())
       const r = await fetch(`${API}/rename`, { method: 'POST', body: form })
-      if (!r.ok) throw new Error(await r.text())
+      if (!r.ok) throw new Error(parseErrorResponse(await r.text()))
       const blob = await r.blob()
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
@@ -88,7 +106,7 @@ export default function App() {
       form.append('sheet', sheetFile)
       form.append('threshold', (threshold / 100).toString())
       const r = await fetch(`${API}/log`, { method: 'POST', body: form })
-      if (!r.ok) throw new Error(await r.text())
+      if (!r.ok) throw new Error(parseErrorResponse(await r.text()))
       const data = await r.json()
       const blob = new Blob([data.csv], { type: 'text/csv' })
       const a = document.createElement('a')

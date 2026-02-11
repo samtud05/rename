@@ -80,12 +80,17 @@ async def preview(
             names = read_creative_names_from_excel(
                 sheet_content,
                 sheet_name=sheet_name,
-                column_header=column_header or "creative name",
+                column_header=column_header,
             )
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         except Exception as e:
             raise HTTPException(400, f"Excel error: {e}")
     if not names:
-        raise HTTPException(400, "No creative names found in the sheet.")
+        raise HTTPException(
+            400,
+            "No creative names found in the sheet. Check that a column contains CM360-style names (e.g. with underscores).",
+        )
     zip_content = await zip_file.read()
     try:
         z = zipfile.ZipFile(io.BytesIO(zip_content), "r")
@@ -131,12 +136,17 @@ async def rename(
             names = read_creative_names_from_excel(
                 sheet_content,
                 sheet_name=sheet_name,
-                column_header=column_header or "creative name",
+                column_header=column_header,
             )
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         except Exception as e:
             raise HTTPException(400, f"Excel error: {e}")
     if not names:
-        raise HTTPException(400, "No creative names found in the sheet.")
+        raise HTTPException(
+            400,
+            "No creative names found in the sheet. Check that a column contains CM360-style names (e.g. with underscores).",
+        )
     zip_content = await zip_file.read()
     try:
         z = zipfile.ZipFile(io.BytesIO(zip_content), "r")
