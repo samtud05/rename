@@ -2,6 +2,9 @@
 
 Rename creative files to CM360 names using fuzzy matching against a T-sheet (Excel/CSV).
 
+**Live app:** [https://rename-24u6.onrender.com](https://rename-24u6.onrender.com)  
+*(Free tier may take 30–60s to wake on first visit.)*
+
 ---
 
 ## Push & Deploy
@@ -15,22 +18,23 @@ git push -u origin main
 
 Use a [Personal Access Token](https://github.com/settings/tokens) as password if prompted, or switch to SSH: `git remote set-url origin git@github.com:samtud05/rename.git` then push.
 
-### 2. Deploy on Render
+### 2. Deploy on Render (Docker – recommended)
 
-1. **One-click:** Open **[Deploy to Render](https://render.com/deploy?repo=https://github.com/samtud05/rename)** and sign in with GitHub.
-2. **Repo:** Select **samtud05/rename** (or it will be pre-filled).
+Render’s Python environment doesn’t include Node, so use **Docker** to build the frontend and run the app.
+
+1. Open **[Deploy to Render](https://render.com/deploy?repo=https://github.com/samtud05/rename)** and sign in with GitHub.
+2. Select repo **samtud05/rename**.
 3. **Configure the Web Service:**
-   - **Name:** `cm360-creative-renamer` (or any name)
-   - **Build Command:**
-     ```bash
-     cd frontend && npm install && npm run build && mkdir -p ../backend/static && cp -r dist/* ../backend/static/ && cd .. && pip install -r backend/requirements.txt
-     ```
-   - **Start Command:**
-     ```bash
-     uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-     ```
-4. Click **Create Web Service**. Wait for the build to finish.
-5. Your app will be live at **https://cm360-creative-renamer.onrender.com** (or the name you chose).
+   - **Name:** `rename` (or any name)
+   - **Environment:** **Docker** (not “Python 3”)
+   - **Branch:** `main`
+   - **Root Directory:** leave empty
+   - **Build Command:** leave empty (Render builds from the Dockerfile)
+   - **Start Command:** leave empty (Dockerfile `CMD` is used)
+4. Click **Create Web Service**. Wait for the Docker build (first time can take 3–5 min).
+5. Your app will be live at **https://rename-24u6.onrender.com** (or the name you chose).
+
+**If you already created a “Python 3” service:** In the Render dashboard, go to your service → **Settings** → under **Build & Deploy**, change **Environment** to **Docker**, clear **Build Command** and **Start Command**, then **Save** and trigger **Manual Deploy**.
 
 ---
 
