@@ -42,12 +42,14 @@ Render’s Python environment doesn’t include Node, so use **Docker** to build
 
 ### Backend (Python)
 
+Run from the **project root** (so `backend` is a package and imports work):
+
 ```bash
-cd backend
+cd /path/to/cm360-creative-renamer
 python -m venv venv
 source venv/bin/activate   # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+pip install -r backend/requirements.txt
+uvicorn backend.main:app --reload --port 8000
 ```
 
 ### Frontend (React)

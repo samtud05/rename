@@ -15,8 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from matching import get_stem, match_all
-from sheet_reader import read_creative_names_from_excel, read_creative_names_from_csv
+from .matching import get_stem, match_all
+from .sheet_reader import read_creative_names_from_excel, read_creative_names_from_csv
 
 app = FastAPI(title="CM360 Creative Renamer", version="1.0.0")
 
