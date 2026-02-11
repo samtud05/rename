@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .matching import get_stem, match_all
@@ -35,14 +35,15 @@ if static_dir.exists():
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
     def _serve_index():
-        return (static_dir / "index.html").read_text(encoding="utf-8")
-    @app.get("/")
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(content=html)
+    @app.get("/", response_class=HTMLResponse)
     def index():
         return _serve_index()
-    @app.get("/index.html")
+    @app.get("/index.html", response_class=HTMLResponse)
     def index_html():
         return _serve_index()
-    @app.get("/{path:path}")
+    @app.get("/{path:path}", response_class=HTMLResponse)
     def spa_fallback(path: str):
         if path.startswith("api/"):
             raise HTTPException(404, "Not found")
