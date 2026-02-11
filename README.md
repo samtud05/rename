@@ -2,6 +2,38 @@
 
 Rename creative files to CM360 names using fuzzy matching against a T-sheet (Excel/CSV).
 
+---
+
+## Push & Deploy
+
+### 1. Push to GitHub (run on your machine)
+
+```bash
+cd /home/samtudayekar/cm360-creative-renamer
+git push -u origin main
+```
+
+Use a [Personal Access Token](https://github.com/settings/tokens) as password if prompted, or switch to SSH: `git remote set-url origin git@github.com:samtud05/rename.git` then push.
+
+### 2. Deploy on Render
+
+1. **One-click:** Open **[Deploy to Render](https://render.com/deploy?repo=https://github.com/samtud05/rename)** and sign in with GitHub.
+2. **Repo:** Select **samtud05/rename** (or it will be pre-filled).
+3. **Configure the Web Service:**
+   - **Name:** `cm360-creative-renamer` (or any name)
+   - **Build Command:**
+     ```bash
+     cd frontend && npm install && npm run build && mkdir -p ../backend/static && cp -r dist/* ../backend/static/ && cd .. && pip install -r backend/requirements.txt
+     ```
+   - **Start Command:**
+     ```bash
+     uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+     ```
+4. Click **Create Web Service**. Wait for the build to finish.
+5. Your app will be live at **https://cm360-creative-renamer.onrender.com** (or the name you chose).
+
+---
+
 ## Local development
 
 ### Backend (Python)
