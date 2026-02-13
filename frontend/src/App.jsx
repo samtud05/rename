@@ -15,6 +15,8 @@ export default function App() {
   const [zipFile, setZipFile] = useState(null)
   const [sheetFile, setSheetFile] = useState(null)
   const [threshold, setThreshold] = useState(70)
+  const [sheetName, setSheetName] = useState('')
+  const [columnHeader, setColumnHeader] = useState('')
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -55,6 +57,8 @@ export default function App() {
       form.append('zip_file', zipFile)
       form.append('sheet', sheetFile)
       form.append('threshold', (threshold / 100).toString())
+      if (sheetName.trim()) form.append('sheet_name', sheetName.trim())
+      if (columnHeader.trim()) form.append('column_header', columnHeader.trim())
       const r = await fetch(`${API}/preview`, {
         method: 'POST',
         body: form,
@@ -70,7 +74,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [zipFile, sheetFile, threshold])
+  }, [zipFile, sheetFile, threshold, sheetName, columnHeader])
 
   const downloadRenamedZip = useCallback(async () => {
     if (!zipFile || !sheetFile) return
@@ -81,6 +85,8 @@ export default function App() {
       form.append('zip_file', zipFile)
       form.append('sheet', sheetFile)
       form.append('threshold', (threshold / 100).toString())
+      if (sheetName.trim()) form.append('sheet_name', sheetName.trim())
+      if (columnHeader.trim()) form.append('column_header', columnHeader.trim())
       const r = await fetch(`${API}/rename`, { method: 'POST', body: form })
       if (!r.ok) throw new Error(parseErrorResponse(await r.text()))
       const blob = await r.blob()
@@ -94,7 +100,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [zipFile, sheetFile, threshold])
+  }, [zipFile, sheetFile, threshold, sheetName, columnHeader])
 
   const downloadLog = useCallback(async () => {
     if (!zipFile || !sheetFile) return
@@ -105,6 +111,8 @@ export default function App() {
       form.append('zip_file', zipFile)
       form.append('sheet', sheetFile)
       form.append('threshold', (threshold / 100).toString())
+      if (sheetName.trim()) form.append('sheet_name', sheetName.trim())
+      if (columnHeader.trim()) form.append('column_header', columnHeader.trim())
       const r = await fetch(`${API}/log`, { method: 'POST', body: form })
       if (!r.ok) throw new Error(parseErrorResponse(await r.text()))
       const data = await r.json()
@@ -119,7 +127,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [zipFile, sheetFile, threshold])
+  }, [zipFile, sheetFile, threshold, sheetName, columnHeader])
 
   const list = preview?.preview ?? []
   const lowConfidence = list.filter((r) => r.score < threshold)
@@ -146,6 +154,29 @@ export default function App() {
             <span style={styles.fileName}>{sheetFile?.name || 'No file'}</span>
           </label>
         </div>
+        <div style={styles.optionalRow}>
+          <label style={styles.label}>
+            Sheet name (Excel only, optional)
+            <input
+              type="text"
+              placeholder="e.g. T1"
+              value={sheetName}
+              onChange={(e) => setSheetName(e.target.value)}
+              style={styles.textInput}
+            />
+          </label>
+          <label style={styles.label}>
+            Column header (optional)
+            <input
+              type="text"
+              placeholder="e.g. Creative Name"
+              value={columnHeader}
+              onChange={(e) => setColumnHeader(e.target.value)}
+              style={styles.textInput}
+            />
+          </label>
+        </div>
+        <p style={styles.hint}>Leave blank to auto-detect the Creative Name column.</p>
       </section>
 
       <section style={styles.section}>
@@ -259,6 +290,20 @@ const styles = {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '1.5rem',
+  },
+  optionalRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '1.5rem',
+    marginTop: '1rem',
+  },
+  textInput: {
+    padding: '0.5rem',
+    borderRadius: 8,
+    border: '1px solid #334155',
+    background: '#1e293b',
+    color: '#e2e8f0',
+    minWidth: 180,
   },
   label: {
     display: 'flex',

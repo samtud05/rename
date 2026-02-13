@@ -1,16 +1,15 @@
 """
 Fuzzy matching: map each creative filename to the best T-sheet CM360 name.
+Uses token similarity plus anchor boosting (size e.g. 728x90, creative-ID-like tokens).
 """
+import re
 from pathlib import Path
-import rapidfuzz
 from rapidfuzz import fuzz
-from rapidfuzz.process import extractOne
 
 
 def get_stem(path: str) -> str:
     """Get filename without extension for comparison."""
     p = Path(path)
-    # Handle paths like "folder/file.jpg" -> use filename stem
     name = p.name
     if "." in name:
         return name.rsplit(".", 1)[0]
@@ -27,6 +26,45 @@ def normalize(s: str) -> str:
     return " ".join(s.split())
 
 
+# Size pattern: e.g. 728x90, 300x250, 120x600
+_SIZE_RE = re.compile(r"\d{2,4}\s*[xX]\s*\d{2,4}")
+
+
+def _normalize_size(s: str) -> str:
+    m = _SIZE_RE.search(s)
+    if m:
+        part = m.group(0)
+        return re.sub(r"\s+", "", part).lower()
+    return ""
+
+
+def _creative_id_tokens(s: str) -> set[str]:
+    """Extract long alphanumeric tokens (likely creative IDs, e.g. IRCHAMPAGNEGLASS)."""
+    s = normalize(s)
+    tokens = set()
+    for word in s.split():
+        # Keep only alphanumeric, length >= 6 to skip small words
+        clean = re.sub(r"[^a-z0-9]", "", word)
+        if len(clean) >= 6:
+            tokens.add(clean)
+    return tokens
+
+
+def _anchor_bonus(file_stem: str, choice: str) -> float:
+    """Return 0--15 bonus: size match + creative-ID overlap."""
+    file_size = _normalize_size(file_stem)
+    choice_size = _normalize_size(choice)
+    file_ids = _creative_id_tokens(file_stem)
+    choice_ids = _creative_id_tokens(choice)
+    bonus = 0.0
+    if file_size and choice_size and file_size == choice_size:
+        bonus += 8.0
+    overlap = file_ids & choice_ids
+    if overlap:
+        bonus += min(7.0, 3.5 * len(overlap))
+    return bonus
+
+
 def find_best_match(
     file_stem: str,
     choices: list[str],
@@ -34,25 +72,27 @@ def find_best_match(
 ) -> tuple[str | None, float]:
     """
     Return (best_match_choice, score_0_100) for file_stem against choices.
-    score is 0-100. If best score < threshold*100, return (None, score).
+    Uses token_set_ratio plus anchor bonus (size + creative-ID) so e.g.
+    Eng_NCL Q1_Standard IAB_728x90_NA_IRCHAMPAGNEGLASS_ matches
+    UnitedKingdom_Q12026_Yahoo_Google_IRCHAMPAGNEGLASS_728x90 reliably.
     """
     if not choices:
         return None, 0.0
     file_n = normalize(file_stem)
     choices_clean = [(normalize(c), c) for c in choices]
-    # Use token_set_ratio for forgiving match (order, extra words)
-    best = extractOne(
-        file_n,
-        [c[0] for c in choices_clean],
-        scorer=fuzz.token_set_ratio,
-    )
-    if not best:
+    # Base scores with token_set_ratio
+    scores = []
+    for i, (norm_c, orig_c) in enumerate(choices_clean):
+        base = fuzz.token_set_ratio(file_n, norm_c)
+        bonus = _anchor_bonus(file_stem, orig_c)
+        scores.append((min(100.0, base + bonus), i))
+    if not scores:
         return None, 0.0
-    score = float(best[1])
-    original_choice = choices_clean[best[2]][1]
-    if threshold > 0 and score < threshold * 100:
-        return None, score
-    return original_choice, score
+    best_score, best_idx = max(scores, key=lambda x: x[0])
+    original_choice = choices_clean[best_idx][1]
+    if threshold > 0 and best_score < threshold * 100:
+        return None, round(best_score, 1)
+    return original_choice, round(best_score, 1)
 
 
 def match_all(

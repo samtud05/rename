@@ -13,7 +13,8 @@ WORKDIR /app
 COPY backend/ ./backend/
 COPY --from=frontend /app/frontend/dist ./backend/static
 
-RUN pip install --no-cache-dir -r backend/requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r backend/requirements.txt
 
 ENV PORT=10000
 EXPOSE 10000

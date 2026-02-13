@@ -2,7 +2,7 @@
 
 Rename creative files to CM360 names using fuzzy matching against a T-sheet (Excel/CSV).
 
-**Live app:** [https://rename-24u6.onrender.com](https://rename-24u6.onrender.com)  
+**Live app:** [https://rename-vm3h.onrender.com](https://rename-vm3h.onrender.com)  
 *(Free tier may take 30–60s to wake on first visit.)*
 
 ---
@@ -32,7 +32,7 @@ Render’s Python environment doesn’t include Node, so use **Docker** to build
    - **Build Command:** leave empty (Render builds from the Dockerfile)
    - **Start Command:** leave empty (Dockerfile `CMD` is used)
 4. Click **Create Web Service**. Wait for the Docker build (first time can take 3–5 min).
-5. Your app will be live at **https://rename-24u6.onrender.com** (or the name you chose).
+5. Your app will be live at **https://rename-vm3h.onrender.com** (or the name you chose).
 
 **If you already created a “Python 3” service:** In the Render dashboard, go to your service → **Settings** → under **Build & Deploy**, change **Environment** to **Docker**, clear **Build Command** and **Start Command**, then **Save** and trigger **Manual Deploy**.
 

@@ -92,6 +92,19 @@ def _find_creative_column(
             for c in range(df.shape[1]):
                 if pd.notna(df.iloc[r, c]) and h in str(df.iloc[r, c]).lower():
                     return c
+    # Auto-detect: prefer column with header "creative name" (or similar)
+    creative_name_headers = ("creative name", "creative name ", "creative_name", "cm360 creative name")
+    for c in range(df.shape[1]):
+        for r in range(min(5, len(df))):
+            val = df.iloc[r, c]
+            if pd.notna(val):
+                v = str(val).strip().lower()
+                if v in creative_name_headers or (v.startswith("creative") and "name" in v):
+                    vals = df.iloc[:, c].dropna().astype(str).str.strip()
+                    with_underscore = vals[vals.str.contains("_", na=False)]
+                    if len(with_underscore.unique()) >= 2:
+                        return c
+                    break
     # Common in trafficking sheets: creative name in column 17 (0-based)
     if df.shape[1] > 17 and df.shape[0] > 20:
         c = 17
