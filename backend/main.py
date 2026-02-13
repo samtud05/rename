@@ -1,7 +1,9 @@
 """
 FastAPI app: upload ZIP + T-sheet, fuzzy match, return preview or renamed ZIP + log.
+Compare two ZIPs by filename and content hash.
 Serves React static build at / when static folder exists.
 """
+import hashlib
 import io
 import zipfile
 import csv
@@ -214,6 +216,69 @@ async def get_log(
         new_name = (row.get("matched_name") or row.get("file_stem", "")) + (row.get("extension") or "")
         w.writerow([row.get("file_path", ""), new_name, row.get("score", "")])
     return JSONResponse({"csv": buf.getvalue()})
+
+
+def _zip_name_to_hash(z: zipfile.ZipFile) -> dict[str, tuple[str, str]]:
+    """Return dict: basename -> (path_in_zip, md5_hex). Skips directories."""
+    out = {}
+    for name in z.namelist():
+        if name.endswith("/"):
+            continue
+        base = Path(name).name
+        try:
+            data = z.read(name)
+        except Exception:
+            continue
+        h = hashlib.md5(data).hexdigest()
+        out[base] = (name, h)
+    return out
+
+
+@app.post("/api/compare")
+async def compare_zips(
+    zip1: UploadFile = File(..., description="First ZIP (e.g. your updated ZIP)"),
+    zip2: UploadFile = File(..., description="Second ZIP (e.g. tool output renamed ZIP)"),
+):
+    """
+    Compare two ZIPs by filename (basename) and file content (MD5).
+    Returns: only_in_1, only_in_2, same_content, different_content.
+    """
+    if not zip1.filename or not zip1.filename.lower().endswith(".zip"):
+        raise HTTPException(400, "First file must be a ZIP.")
+    if not zip2.filename or not zip2.filename.lower().endswith(".zip"):
+        raise HTTPException(400, "Second file must be a ZIP.")
+    try:
+        c1 = await zip1.read()
+        c2 = await zip2.read()
+        z1 = zipfile.ZipFile(io.BytesIO(c1), "r")
+        z2 = zipfile.ZipFile(io.BytesIO(c2), "r")
+    except Exception as e:
+        raise HTTPException(400, f"Invalid ZIP: {e}")
+    m1 = _zip_name_to_hash(z1)
+    m2 = _zip_name_to_hash(z2)
+    names1 = set(m1.keys())
+    names2 = set(m2.keys())
+    only_in_1 = sorted(names1 - names2)
+    only_in_2 = sorted(names2 - names1)
+    same_content = []
+    different_content = []
+    for n in sorted(names1 & names2):
+        if m1[n][1] == m2[n][1]:
+            same_content.append(n)
+        else:
+            different_content.append(n)
+    return JSONResponse({
+        "only_in_1": only_in_1,
+        "only_in_2": only_in_2,
+        "same_content": same_content,
+        "different_content": different_content,
+        "summary": {
+            "only_in_1_count": len(only_in_1),
+            "only_in_2_count": len(only_in_2),
+            "same_content_count": len(same_content),
+            "different_content_count": len(different_content),
+        },
+    })
 
 
 @app.get("/api/health")

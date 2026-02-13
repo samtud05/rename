@@ -12,14 +12,20 @@ function parseErrorResponse(text) {
 }
 
 export default function App() {
+  const [view, setView] = useState('rename') // 'rename' | 'compare'
   const [zipFile, setZipFile] = useState(null)
   const [sheetFile, setSheetFile] = useState(null)
-  const [threshold, setThreshold] = useState(70)
+  const DEFAULT_THRESHOLD = 0.7
   const [sheetName, setSheetName] = useState('')
   const [columnHeader, setColumnHeader] = useState('')
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [compareZip1, setCompareZip1] = useState(null)
+  const [compareZip2, setCompareZip2] = useState(null)
+  const [compareResult, setCompareResult] = useState(null)
+  const [compareLoading, setCompareLoading] = useState(false)
+  const [compareError, setCompareError] = useState(null)
 
   const handleZip = useCallback((e) => {
     const f = e.target.files?.[0]
@@ -56,7 +62,7 @@ export default function App() {
       const form = new FormData()
       form.append('zip_file', zipFile)
       form.append('sheet', sheetFile)
-      form.append('threshold', (threshold / 100).toString())
+      form.append('threshold', DEFAULT_THRESHOLD.toString())
       if (sheetName.trim()) form.append('sheet_name', sheetName.trim())
       if (columnHeader.trim()) form.append('column_header', columnHeader.trim())
       const r = await fetch(`${API}/preview`, {
@@ -74,7 +80,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [zipFile, sheetFile, threshold, sheetName, columnHeader])
+  }, [zipFile, sheetFile, sheetName, columnHeader])
 
   const downloadRenamedZip = useCallback(async () => {
     if (!zipFile || !sheetFile) return
@@ -84,7 +90,7 @@ export default function App() {
       const form = new FormData()
       form.append('zip_file', zipFile)
       form.append('sheet', sheetFile)
-      form.append('threshold', (threshold / 100).toString())
+      form.append('threshold', DEFAULT_THRESHOLD.toString())
       if (sheetName.trim()) form.append('sheet_name', sheetName.trim())
       if (columnHeader.trim()) form.append('column_header', columnHeader.trim())
       const r = await fetch(`${API}/rename`, { method: 'POST', body: form })
@@ -100,7 +106,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [zipFile, sheetFile, threshold, sheetName, columnHeader])
+  }, [zipFile, sheetFile, sheetName, columnHeader])
 
   const downloadLog = useCallback(async () => {
     if (!zipFile || !sheetFile) return
@@ -110,7 +116,7 @@ export default function App() {
       const form = new FormData()
       form.append('zip_file', zipFile)
       form.append('sheet', sheetFile)
-      form.append('threshold', (threshold / 100).toString())
+      form.append('threshold', DEFAULT_THRESHOLD.toString())
       if (sheetName.trim()) form.append('sheet_name', sheetName.trim())
       if (columnHeader.trim()) form.append('column_header', columnHeader.trim())
       const r = await fetch(`${API}/log`, { method: 'POST', body: form })
@@ -127,21 +133,68 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [zipFile, sheetFile, threshold, sheetName, columnHeader])
+  }, [zipFile, sheetFile, sheetName, columnHeader])
+
+  const runCompare = useCallback(async () => {
+    if (!compareZip1 || !compareZip2) {
+      setCompareError('Please select both ZIPs to compare.')
+      return
+    }
+    setCompareLoading(true)
+    setCompareError(null)
+    setCompareResult(null)
+    try {
+      const form = new FormData()
+      form.append('zip1', compareZip1)
+      form.append('zip2', compareZip2)
+      const r = await fetch(`${API}/compare`, { method: 'POST', body: form })
+      if (!r.ok) throw new Error(parseErrorResponse(await r.text()))
+      const data = await r.json()
+      setCompareResult(data)
+    } catch (err) {
+      setCompareError(err.message || 'Compare failed.')
+    } finally {
+      setCompareLoading(false)
+    }
+  }, [compareZip1, compareZip2])
 
   const list = preview?.preview ?? []
-  const lowConfidence = list.filter((r) => r.score < threshold)
-  const highConfidence = list.filter((r) => r.score >= threshold)
+  const thresholdNum = 70 // used only for highlighting low-confidence rows in preview
 
   return (
-    <div style={styles.container}>
-      <header style={styles.header}>
-        <h1 style={styles.title}>CM360 Creative Renamer</h1>
-        <p style={styles.subtitle}>Upload creatives ZIP + T-sheet → preview → download renamed ZIP & log</p>
-      </header>
+    <div style={styles.layout}>
+      <aside style={styles.sidebar}>
+        <div style={styles.sidebarHeader}>
+          <h1 style={styles.sidebarTitle}>CM360 Tools</h1>
+        </div>
+        <nav style={styles.nav}>
+          <button
+            type="button"
+            style={view === 'rename' ? { ...styles.navItem, ...styles.navItemActive } : styles.navItem}
+            onClick={() => setView('rename')}
+          >
+            Rename creatives
+          </button>
+          <button
+            type="button"
+            style={view === 'compare' ? { ...styles.navItem, ...styles.navItemActive } : styles.navItem}
+            onClick={() => setView('compare')}
+          >
+            Compare ZIPs
+          </button>
+        </nav>
+      </aside>
 
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>1. Upload files</h2>
+      <main style={styles.main}>
+        {view === 'rename' && (
+          <>
+            <header style={styles.header}>
+              <h2 style={styles.title}>Rename creatives</h2>
+              <p style={styles.subtitle}>Upload creatives ZIP + T-sheet → preview → download renamed ZIP & log</p>
+            </header>
+
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>Upload files</h3>
         <div style={styles.uploadRow}>
           <label style={styles.label}>
             Creatives (ZIP)
@@ -180,23 +233,7 @@ export default function App() {
       </section>
 
       <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>2. Confidence threshold</h2>
-        <div style={styles.sliderRow}>
-          <input
-            type="range"
-            min={50}
-            max={95}
-            value={threshold}
-            onChange={(e) => setThreshold(Number(e.target.value))}
-            style={styles.slider}
-          />
-          <span style={styles.thresholdLabel}>{threshold}%</span>
-        </div>
-        <p style={styles.hint}>Matches below this % will still get a best guess but are flagged for review.</p>
-      </section>
-
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>3. Preview & download</h2>
+        <h3 style={styles.sectionTitle}>Preview & download</h3>
         <div style={styles.buttonRow}>
           <button onClick={fetchPreview} disabled={loading || !zipFile || !sheetFile} style={styles.button}>
             {loading ? '…' : 'Preview mapping'}
@@ -221,10 +258,9 @@ export default function App() {
 
       {preview && (
         <section style={styles.section}>
-          <h2 style={styles.sectionTitle}>Preview</h2>
+          <h3 style={styles.sectionTitle}>Preview</h3>
           <p style={styles.meta}>
-            {list.length} files · {preview.sheet_names_count} names in sheet ·{' '}
-            {highConfidence.length} ≥{threshold}% · {lowConfidence.length} &lt;{threshold}% (review)
+            {list.length} files · {preview.sheet_names_count} names in sheet
           </p>
           <div style={styles.tableWrap}>
             <table style={styles.table}>
@@ -238,7 +274,7 @@ export default function App() {
               <tbody>
                 {list.map((row, i) => {
                   const newName = (row.matched_name || row.file_stem) + (row.extension || '')
-                  const isLow = row.score < threshold
+                  const isLow = row.score < thresholdNum
                   return (
                     <tr key={i} style={isLow ? { ...styles.tr, background: 'rgba(248,113,113,0.15)' } : styles.tr}>
                       <td style={styles.td}>{row.file_path}</td>
@@ -252,36 +288,174 @@ export default function App() {
           </div>
         </section>
       )}
+          </>
+        )}
+
+        {view === 'compare' && (
+          <>
+            <header style={styles.header}>
+              <h2 style={styles.title}>Compare two ZIPs</h2>
+              <p style={styles.subtitle}>Compare your updated ZIP with the tool&apos;s renamed ZIP</p>
+            </header>
+
+      <section style={styles.section}>
+        <h3 style={styles.sectionTitle}>Select ZIPs</h3>
+        <p style={styles.hint}>
+          Compare your updated ZIP with the tool&apos;s renamed ZIP: see which files exist only in one, which match (same content), and which have the same name but different content.
+        </p>
+        <div style={styles.uploadRow}>
+          <label style={styles.label}>
+            ZIP 1 (e.g. your updated)
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(e) => {
+                setCompareZip1(e.target.files?.[0] || null)
+                setCompareResult(null)
+                setCompareError(null)
+              }}
+              style={styles.input}
+            />
+            <span style={styles.fileName}>{compareZip1?.name || 'No file'}</span>
+          </label>
+          <label style={styles.label}>
+            ZIP 2 (e.g. tool output)
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(e) => {
+                setCompareZip2(e.target.files?.[0] || null)
+                setCompareResult(null)
+                setCompareError(null)
+              }}
+              style={styles.input}
+            />
+            <span style={styles.fileName}>{compareZip2?.name || 'No file'}</span>
+          </label>
+        </div>
+        <div style={styles.buttonRow}>
+          <button
+            onClick={runCompare}
+            disabled={compareLoading || !compareZip1 || !compareZip2}
+            style={styles.button}
+          >
+            {compareLoading ? '…' : 'Compare'}
+          </button>
+        </div>
+        {compareError && <p style={styles.error}>{compareError}</p>}
+        {compareResult && (
+          <div style={styles.compareResult}>
+            <p style={styles.meta}>
+              Only in ZIP 1: {compareResult.summary.only_in_1_count} · Only in ZIP 2: {compareResult.summary.only_in_2_count} · Same content: {compareResult.summary.same_content_count} · Same name, different content: {compareResult.summary.different_content_count}
+            </p>
+            <div style={styles.compareGrid}>
+              <div style={styles.compareCol}>
+                <h3 style={styles.compareColTitle}>Only in ZIP 1</h3>
+                <ul style={styles.compareList}>
+                  {compareResult.only_in_1.length ? compareResult.only_in_1.map((f, i) => <li key={i} style={styles.compareLi}>{f}</li>) : <li style={styles.compareLi}>(none)</li>}
+                </ul>
+              </div>
+              <div style={styles.compareCol}>
+                <h3 style={styles.compareColTitle}>Only in ZIP 2</h3>
+                <ul style={styles.compareList}>
+                  {compareResult.only_in_2.length ? compareResult.only_in_2.map((f, i) => <li key={i} style={styles.compareLi}>{f}</li>) : <li style={styles.compareLi}>(none)</li>}
+                </ul>
+              </div>
+              <div style={styles.compareCol}>
+                <h3 style={styles.compareColTitle}>Same content</h3>
+                <ul style={styles.compareList}>
+                  {compareResult.same_content.length ? compareResult.same_content.map((f, i) => <li key={i} style={styles.compareLi}>{f}</li>) : <li style={styles.compareLi}>(none)</li>}
+                </ul>
+              </div>
+              <div style={styles.compareCol}>
+                <h3 style={{ ...styles.compareColTitle, color: '#fbbf24' }}>Same name, different content</h3>
+                <ul style={styles.compareList}>
+                  {compareResult.different_content.length ? compareResult.different_content.map((f, i) => <li key={i} style={styles.compareLi}>{f}</li>) : <li style={styles.compareLi}>(none)</li>}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+          </>
+        )}
+      </main>
     </div>
   )
 }
 
 const styles = {
-  container: {
+  layout: {
+    display: 'flex',
+    minHeight: '100vh',
+    background: '#0f172a',
+  },
+  sidebar: {
+    width: 220,
+    flexShrink: 0,
+    background: '#1e293b',
+    borderRight: '1px solid #334155',
+    padding: '1.25rem 0',
+  },
+  sidebarHeader: {
+    padding: '0 1rem 1rem',
+    borderBottom: '1px solid #334155',
+    marginBottom: '0.75rem',
+  },
+  sidebarTitle: {
+    fontSize: '1rem',
+    fontWeight: 700,
+    margin: 0,
+    color: '#f8fafc',
+  },
+  nav: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+  },
+  navItem: {
+    display: 'block',
+    width: '100%',
+    padding: '0.65rem 1rem',
+    border: 'none',
+    borderLeft: '3px solid transparent',
+    background: 'transparent',
+    color: '#94a3b8',
+    fontSize: '0.95rem',
+    textAlign: 'left',
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+  navItemActive: {
+    background: '#334155',
+    color: '#e2e8f0',
+    borderLeftColor: '#3b82f6',
+  },
+  main: {
+    flex: 1,
     maxWidth: 960,
-    margin: '0 auto',
-    padding: '2rem 1rem',
+    padding: '2rem 1.5rem',
+    overflow: 'auto',
   },
   header: {
-    marginBottom: '2rem',
-    textAlign: 'center',
+    marginBottom: '1.5rem',
   },
   title: {
-    fontSize: '1.75rem',
+    fontSize: '1.5rem',
     fontWeight: 700,
     margin: 0,
     color: '#f8fafc',
   },
   subtitle: {
-    margin: '0.5rem 0 0',
+    margin: '0.35rem 0 0',
     color: '#94a3b8',
-    fontSize: '0.95rem',
+    fontSize: '0.9rem',
   },
   section: {
     marginBottom: '2rem',
   },
   sectionTitle: {
-    fontSize: '1.1rem',
+    fontSize: '1rem',
     fontWeight: 600,
     marginBottom: '0.75rem',
     color: '#e2e8f0',
@@ -321,19 +495,6 @@ const styles = {
   fileName: {
     fontSize: '0.85rem',
     color: '#94a3b8',
-  },
-  sliderRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem',
-  },
-  slider: {
-    width: 200,
-    accentColor: '#3b82f6',
-  },
-  thresholdLabel: {
-    fontWeight: 600,
-    minWidth: 48,
   },
   hint: {
     margin: '0.5rem 0 0',
@@ -390,5 +551,38 @@ const styles = {
   td: {
     padding: '0.5rem 0.75rem',
     borderTop: '1px solid #334155',
+  },
+  compareResult: {
+    marginTop: '1rem',
+  },
+  compareGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+    gap: '1rem',
+    marginTop: '0.75rem',
+  },
+  compareCol: {
+    border: '1px solid #334155',
+    borderRadius: 8,
+    padding: '0.75rem',
+    background: '#1e293b',
+  },
+  compareColTitle: {
+    fontSize: '0.9rem',
+    fontWeight: 600,
+    margin: '0 0 0.5rem',
+    color: '#e2e8f0',
+  },
+  compareList: {
+    margin: 0,
+    paddingLeft: '1.25rem',
+    fontSize: '0.8rem',
+    color: '#94a3b8',
+    maxHeight: 200,
+    overflowY: 'auto',
+  },
+  compareLi: {
+    marginBottom: '0.25rem',
+    wordBreak: 'break-all',
   },
 }
