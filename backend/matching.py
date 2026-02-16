@@ -94,8 +94,8 @@ def _primary_creative_token(file_stem: str) -> str | None:
 
 def _region_from_file_stem(file_stem: str) -> str | None:
     """
-    Detect language/region from filename so we match FR files to BEFR sheet names, not BENL.
-    E.g. 'P4/FR Display...' or '..._FR_' -> 'befr'; '..._BENL' -> 'benl'.
+    Detect language/region from filename so we match to the correct sheet row.
+    FR / P4/FR -> BEFR (Belgian French). VL / P4/VL -> BENL (Belgian Dutch/Flemish).
     """
     s = file_stem.lower()
     # Explicit region codes in sheet style (e.g. ..._display_BEFR)
@@ -103,9 +103,12 @@ def _region_from_file_stem(file_stem: str) -> str | None:
         return "befr"
     if "benl" in s:
         return "benl"
-    # Path/segment hints: P4/FR, /FR, _FR, -FR -> French -> BEFR
+    # Path/segment hints: P4/FR -> BEFR
     if re.search(r"p4/fr|/fr\b|_fr\b|-fr\b|\bfr\b", s):
         return "befr"
+    # P4/VL, /VL -> BENL (Vlaams / Flemish / Dutch)
+    if re.search(r"p4/vl|/vl\b|_vl\b|-vl\b|\bvl\b", s):
+        return "benl"
     if re.search(r"/nl\b|_nl\b|-nl\b|\bnl\b", s):
         return "benl"
     return None
@@ -137,15 +140,26 @@ def find_best_match(
     primary = _primary_creative_token(file_stem)
     if primary:
         subset = [(n, o) for n, o in choices_clean if primary in o.lower()]
-        if subset:
-            choices_clean = subset
+        if not subset:
+            # No sheet row has this creative name -> do not assign a wrong name (e.g. Broodmix -> Cilou)
+            return None, 0.0
+        choices_clean = subset
 
-    # 2b) Restrict by region/language: FR in filename -> only sheet names with BEFR (not BENL)
+    # 2b) Restrict by region: FR -> BEFR only, VL -> BENL only (never FR file -> BENL or VL -> BEFR)
     region = _region_from_file_stem(file_stem)
     if region:
         subset = [(n, o) for n, o in choices_clean if region in o.lower()]
-        if subset:
-            choices_clean = subset
+        if not subset:
+            return None, 0.0
+        choices_clean = subset
+
+    # 2c) Restrict by size: file 300x600 must match a sheet row with 300x600 (not 300x250)
+    file_size = _normalize_size(file_stem)
+    if file_size:
+        subset = [(n, o) for n, o in choices_clean if _normalize_size(o) == file_size]
+        if not subset:
+            return None, 0.0
+        choices_clean = subset
 
     # 3) Score and pick best
     scores = []
@@ -157,6 +171,14 @@ def find_best_match(
         return None, 0.0
     best_score, best_idx = max(scores, key=lambda x: x[0])
     original_choice = choices_clean[best_idx][1]
+
+    # 4) Final verification: chosen name must contain primary (if set) and region (if set)
+    choice_lower = original_choice.lower()
+    if primary and primary not in choice_lower:
+        return None, 0.0
+    if region and region not in choice_lower:
+        return None, 0.0
+
     if threshold > 0 and best_score < threshold * 100:
         return None, round(best_score, 1)
     return original_choice, round(best_score, 1)
