@@ -65,6 +65,52 @@ def _anchor_bonus(file_stem: str, choice: str) -> float:
     return bonus
 
 
+def _primary_creative_token(file_stem: str) -> str | None:
+    """
+    Extract the single best 'creative' token from the file stem to force sheet match to contain it.
+    Skips sizes (300x250), years/numbers, and very short words. Prefers longest remaining token.
+    Uses only the part BEFORE '(' so '2026_04_Violen (pensées)' -> 'violen' (not 'pensees').
+    """
+    # Prefer main creative name before parenthetical translation, e.g. "Violen (pensées)" -> use "Violen"
+    main_part = file_stem.split("(")[0].strip()
+    file_n = normalize(main_part)
+    size_norm = _normalize_size(file_stem)
+    candidates = []
+    for word in file_n.split():
+        clean = re.sub(r"[^a-z0-9]", "", word)
+        if len(clean) < 5:
+            continue
+        if clean == size_norm:
+            continue
+        if re.fullmatch(r"\d+", clean):
+            continue
+        if clean in ("display", "ads", "p4", "p04", "fr", "benl", "befr", "online", "ondersteuning", "vl"):
+            continue
+        candidates.append((clean, len(clean)))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda x: x[1])[0]
+
+
+def _region_from_file_stem(file_stem: str) -> str | None:
+    """
+    Detect language/region from filename so we match FR files to BEFR sheet names, not BENL.
+    E.g. 'P4/FR Display...' or '..._FR_' -> 'befr'; '..._BENL' -> 'benl'.
+    """
+    s = file_stem.lower()
+    # Explicit region codes in sheet style (e.g. ..._display_BEFR)
+    if "befr" in s:
+        return "befr"
+    if "benl" in s:
+        return "benl"
+    # Path/segment hints: P4/FR, /FR, _FR, -FR -> French -> BEFR
+    if re.search(r"p4/fr|/fr\b|_fr\b|-fr\b|\bfr\b", s):
+        return "befr"
+    if re.search(r"/nl\b|_nl\b|-nl\b|\bnl\b", s):
+        return "benl"
+    return None
+
+
 def find_best_match(
     file_stem: str,
     choices: list[str],
@@ -72,15 +118,36 @@ def find_best_match(
 ) -> tuple[str | None, float]:
     """
     Return (best_match_choice, score_0_100) for file_stem against choices.
-    Uses token_set_ratio plus anchor bonus (size + creative-ID) so e.g.
-    Eng_NCL Q1_Standard IAB_728x90_NA_IRCHAMPAGNEGLASS_ matches
-    UnitedKingdom_Q12026_Yahoo_Google_IRCHAMPAGNEGLASS_728x90 reliably.
+    - Exact match (normalized) returns 100.
+    - Otherwise prefers sheet names that *contain* the file's primary creative token
+      (e.g. file "Broodmix" -> only consider sheet names containing "Broodmix") so we pick the correct row.
+    - Then token_set_ratio + anchor bonus (size + creative-ID overlap).
     """
     if not choices:
         return None, 0.0
     file_n = normalize(file_stem)
     choices_clean = [(normalize(c), c) for c in choices]
-    # Base scores with token_set_ratio
+
+    # 1) Exact match (normalized equality)
+    for norm_c, orig_c in choices_clean:
+        if norm_c == file_n:
+            return orig_c, 100.0
+
+    # 2) Restrict to choices that contain the file's primary creative token (so we pick the correct row)
+    primary = _primary_creative_token(file_stem)
+    if primary:
+        subset = [(n, o) for n, o in choices_clean if primary in o.lower()]
+        if subset:
+            choices_clean = subset
+
+    # 2b) Restrict by region/language: FR in filename -> only sheet names with BEFR (not BENL)
+    region = _region_from_file_stem(file_stem)
+    if region:
+        subset = [(n, o) for n, o in choices_clean if region in o.lower()]
+        if subset:
+            choices_clean = subset
+
+    # 3) Score and pick best
     scores = []
     for i, (norm_c, orig_c) in enumerate(choices_clean):
         base = fuzz.token_set_ratio(file_n, norm_c)

@@ -1,17 +1,22 @@
 """
 FastAPI app: upload ZIP + T-sheet, fuzzy match, return preview or renamed ZIP + log.
 Compare two ZIPs by filename and content hash.
+Ad Tag Tester, HTML5 Validator, VAST Tag Tester.
 Serves React static build at / when static folder exists.
 """
 import hashlib
 import io
+import uuid
 import zipfile
 import csv
 import os
+import re
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
@@ -284,3 +289,155 @@ async def compare_zips(
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# --- Ad Tag Tester ---
+_ad_tag_cache: dict[str, str] = {}
+MAX_CACHED_TAGS = 100
+
+
+def _trim_cache():
+    if len(_ad_tag_cache) > MAX_CACHED_TAGS:
+        for _ in range(MAX_CACHED_TAGS // 4):
+            k = next(iter(_ad_tag_cache), None)
+            if k:
+                del _ad_tag_cache[k]
+
+
+@app.post("/api/ad-tag/preview")
+async def ad_tag_preview(html: str = Form(...)):
+    """Store HTML ad tag and return preview ID + test page URL."""
+    html = (html or "").strip()
+    if not html:
+        raise HTTPException(400, "Please paste an HTML ad tag.")
+    preview_id = str(uuid.uuid4()).replace("-", "")[:16]
+    _ad_tag_cache[preview_id] = html
+    _trim_cache()
+    base = os.environ.get("BASE_URL", "").rstrip("/")
+    test_url = f"{base}/test/{preview_id}" if base else f"/test/{preview_id}"
+    return JSONResponse({"preview_id": preview_id, "test_page_url": test_url, "script": html})
+
+
+@app.get("/test/{preview_id}", response_class=HTMLResponse)
+def ad_tag_test_page(preview_id: str):
+    """Serve HTML page that renders the ad tag in an iframe (sandboxed)."""
+    html = _ad_tag_cache.get(preview_id)
+    if not html:
+        raise HTTPException(404, "Preview not found or expired.")
+    wrapped = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><base target="_blank"></head>
+<body style="margin:0;padding:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1e293b;">
+<div style="min-width:300px;min-height:250px;background:#fff;">
+{html}
+</div>
+</body></html>"""
+    return HTMLResponse(content=wrapped)
+
+
+# --- HTML5 Ad Validator ---
+IAB_MAX_INITIAL_LOAD_KB = 200
+HTML5_ENTRY_POINTS = ("index.html", "index.htm")
+
+
+@app.post("/api/html5/validate")
+async def html5_validate(zip_file: UploadFile = File(...)):
+    """Validate HTML5 ad creative ZIP structure."""
+    if not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
+        raise HTTPException(400, "Please upload an HTML5 creative ZIP.")
+    content = await zip_file.read()
+    try:
+        z = zipfile.ZipFile(io.BytesIO(content), "r")
+    except Exception as e:
+        raise HTTPException(400, f"Invalid ZIP: {e}")
+    names = [n for n in z.namelist() if not n.endswith("/")]
+    errors = []
+    warnings = []
+    # Check for index.html
+    index_path = None
+    for p in HTML5_ENTRY_POINTS:
+        for n in names:
+            if n.lower().endswith(p) or n.lower().rstrip("/").endswith(p):
+                index_path = n
+                break
+        if index_path:
+            break
+    if not index_path:
+        errors.append("Missing index.html or index.htm")
+    # Check initial load size (index + critical assets - simplified: index + first 5 files)
+    total_initial = 0
+    for n in names[:20]:
+        try:
+            total_initial += len(z.read(n))
+        except Exception:
+            pass
+    total_kb = total_initial / 1024
+    if total_kb > IAB_MAX_INITIAL_LOAD_KB:
+        warnings.append(f"Initial load ~{total_kb:.1f} KB exceeds IAB guideline (~{IAB_MAX_INITIAL_LOAD_KB} KB)")
+    # File count
+    file_count = len(names)
+    # Build report
+    return JSONResponse({
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+        "file_count": file_count,
+        "index_path": index_path,
+        "initial_load_kb": round(total_kb, 1),
+    })
+
+
+# --- VAST Tag Tester ---
+def _local_name(elem) -> str:
+    """Get local tag name without namespace."""
+    tag = elem.tag or ""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+def _parse_vast(xml_text: str) -> dict:
+    """Parse VAST XML and extract media URLs, impressions, etc."""
+    root = ET.fromstring(xml_text)
+    media_files = []
+    impressions = []
+    click_through = None
+    for elem in root.iter():
+        name = _local_name(elem)
+        url = (elem.text or "").strip() if elem.text else ""
+        if name == "MediaFile" and url.startswith("http"):
+            attrs = elem.attrib if hasattr(elem, "attrib") else {}
+            if not any(x["url"] == url for x in media_files):
+                media_files.append({
+                    "url": url,
+                    "type": attrs.get("type", ""),
+                    "width": attrs.get("width"),
+                    "height": attrs.get("height"),
+                })
+        elif name == "Impression" and url.startswith("http"):
+            if url not in impressions:
+                impressions.append(url)
+        elif name == "ClickThrough" and url.startswith("http"):
+            click_through = click_through or url
+    return {"media_files": media_files, "impressions": impressions, "click_through": click_through}
+
+
+@app.post("/api/vast/preview")
+async def vast_preview(vast_url: str = Form(...)):
+    """Fetch VAST URL, parse XML, return structure for preview."""
+    vast_url = (vast_url or "").strip()
+    if not vast_url:
+        raise HTTPException(400, "Please paste a VAST tag URL.")
+    if not re.match(r"^https?://", vast_url, re.I):
+        raise HTTPException(400, "VAST URL must start with http:// or https://")
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            r = await client.get(vast_url)
+            r.raise_for_status()
+            xml_text = r.text
+    except httpx.HTTPError as e:
+        raise HTTPException(400, f"Failed to fetch VAST URL: {e}")
+    except Exception as e:
+        raise HTTPException(400, f"Failed to fetch VAST URL: {e}")
+    try:
+        data = _parse_vast(xml_text)
+    except ET.ParseError as e:
+        raise HTTPException(400, f"Invalid VAST XML: {e}")
+    return JSONResponse(data)

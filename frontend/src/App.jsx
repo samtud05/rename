@@ -12,7 +12,7 @@ function parseErrorResponse(text) {
 }
 
 export default function App() {
-  const [view, setView] = useState('rename') // 'rename' | 'compare'
+  const [view, setView] = useState('rename') // 'rename' | 'compare' | 'adTag' | 'html5' | 'vast'
   const [zipFile, setZipFile] = useState(null)
   const [sheetFile, setSheetFile] = useState(null)
   const DEFAULT_THRESHOLD = 0.7
@@ -26,6 +26,21 @@ export default function App() {
   const [compareResult, setCompareResult] = useState(null)
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState(null)
+  // Ad Tag Tester
+  const [adTagHtml, setAdTagHtml] = useState('')
+  const [adTagResult, setAdTagResult] = useState(null)
+  const [adTagLoading, setAdTagLoading] = useState(false)
+  const [adTagError, setAdTagError] = useState(null)
+  // HTML5 Ad Validator
+  const [html5Zip, setHtml5Zip] = useState(null)
+  const [html5Result, setHtml5Result] = useState(null)
+  const [html5Loading, setHtml5Loading] = useState(false)
+  const [html5Error, setHtml5Error] = useState(null)
+  // VAST Tag Tester
+  const [vastUrl, setVastUrl] = useState('')
+  const [vastResult, setVastResult] = useState(null)
+  const [vastLoading, setVastLoading] = useState(false)
+  const [vastError, setVastError] = useState(null)
 
   const handleZip = useCallback((e) => {
     const f = e.target.files?.[0]
@@ -158,6 +173,74 @@ export default function App() {
     }
   }, [compareZip1, compareZip2])
 
+  const runAdTagPreview = useCallback(async () => {
+    const html = (adTagHtml || '').trim()
+    if (!html) {
+      setAdTagError('Please paste an HTML ad tag.')
+      return
+    }
+    setAdTagLoading(true)
+    setAdTagError(null)
+    setAdTagResult(null)
+    try {
+      const fd = new FormData()
+      fd.append('html', html)
+      const r = await fetch(`${API}/ad-tag/preview`, { method: 'POST', body: fd })
+      if (!r.ok) throw new Error(parseErrorResponse(await r.text()))
+      const data = await r.json()
+      setAdTagResult(data)
+    } catch (err) {
+      setAdTagError(err.message || 'Preview failed.')
+    } finally {
+      setAdTagLoading(false)
+    }
+  }, [adTagHtml])
+
+  const runHtml5Validate = useCallback(async () => {
+    if (!html5Zip) {
+      setHtml5Error('Please upload an HTML5 creative ZIP.')
+      return
+    }
+    setHtml5Loading(true)
+    setHtml5Error(null)
+    setHtml5Result(null)
+    try {
+      const fd = new FormData()
+      fd.append('zip_file', html5Zip)
+      const r = await fetch(`${API}/html5/validate`, { method: 'POST', body: fd })
+      if (!r.ok) throw new Error(parseErrorResponse(await r.text()))
+      const data = await r.json()
+      setHtml5Result(data)
+    } catch (err) {
+      setHtml5Error(err.message || 'Validation failed.')
+    } finally {
+      setHtml5Loading(false)
+    }
+  }, [html5Zip])
+
+  const runVastPreview = useCallback(async () => {
+    const url = (vastUrl || '').trim()
+    if (!url) {
+      setVastError('Please paste a VAST tag URL.')
+      return
+    }
+    setVastLoading(true)
+    setVastError(null)
+    setVastResult(null)
+    try {
+      const fd = new FormData()
+      fd.append('vast_url', url)
+      const r = await fetch(`${API}/vast/preview`, { method: 'POST', body: fd })
+      if (!r.ok) throw new Error(parseErrorResponse(await r.text()))
+      const data = await r.json()
+      setVastResult(data)
+    } catch (err) {
+      setVastError(err.message || 'Preview failed.')
+    } finally {
+      setVastLoading(false)
+    }
+  }, [vastUrl])
+
   const list = preview?.preview ?? []
   const thresholdNum = 70 // used only for highlighting low-confidence rows in preview
 
@@ -181,6 +264,27 @@ export default function App() {
             onClick={() => setView('compare')}
           >
             Compare ZIPs
+          </button>
+          <button
+            type="button"
+            style={view === 'adTag' ? { ...styles.navItem, ...styles.navItemActive } : styles.navItem}
+            onClick={() => setView('adTag')}
+          >
+            Ad Tag Tester
+          </button>
+          <button
+            type="button"
+            style={view === 'html5' ? { ...styles.navItem, ...styles.navItemActive } : styles.navItem}
+            onClick={() => setView('html5')}
+          >
+            HTML5 Ad Validator
+          </button>
+          <button
+            type="button"
+            style={view === 'vast' ? { ...styles.navItem, ...styles.navItemActive } : styles.navItem}
+            onClick={() => setView('vast')}
+          >
+            VAST Tag Tester
           </button>
         </nav>
       </aside>
@@ -377,6 +481,174 @@ export default function App() {
           </div>
         )}
       </section>
+          </>
+        )}
+
+        {view === 'adTag' && (
+          <>
+            <header style={styles.header}>
+              <h2 style={styles.title}>Ad Tag Tester</h2>
+              <p style={styles.subtitle}>Paste an HTML ad tag → live preview, copy script, open in browser</p>
+            </header>
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>Paste HTML tag</h3>
+              <textarea
+                placeholder="Paste your HTML ad tag here (script, noscript, ins, etc.)"
+                value={adTagHtml}
+                onChange={(e) => { setAdTagHtml(e.target.value); setAdTagResult(null); setAdTagError(null); }}
+                style={{ ...styles.textInput, minHeight: 120, fontFamily: 'monospace', fontSize: '0.85rem' }}
+              />
+              <div style={styles.buttonRow}>
+                <button onClick={runAdTagPreview} disabled={adTagLoading || !adTagHtml.trim()} style={styles.button}>
+                  {adTagLoading ? '…' : 'Generate Preview'}
+                </button>
+              </div>
+              {adTagError && <p style={styles.error}>{adTagError}</p>}
+            </section>
+            {adTagResult && (
+              <section style={styles.section}>
+                <h3 style={styles.sectionTitle}>Live Preview</h3>
+                <div style={styles.adTagPreview}>
+                  <iframe
+                    src={`/test/${adTagResult.preview_id}`}
+                    title="Ad preview"
+                    style={{ width: 340, height: 300, border: '1px solid #334155', borderRadius: 8, background: '#fff' }}
+                    sandbox="allow-scripts allow-same-origin allow-popups"
+                  />
+                </div>
+                <h3 style={styles.sectionTitle}>Script</h3>
+                <div style={styles.scriptRow}>
+                  <button onClick={() => navigator.clipboard?.writeText(adTagResult.script)} style={styles.button}>
+                    Copy
+                  </button>
+                  <a href={`/test/${adTagResult.preview_id}`} target="_blank" rel="noopener noreferrer" style={styles.link}>
+                    Open in browser
+                  </a>
+                </div>
+                <pre style={styles.codeBlock}>{adTagResult.script}</pre>
+              </section>
+            )}
+          </>
+        )}
+
+        {view === 'html5' && (
+          <>
+            <header style={styles.header}>
+              <h2 style={styles.title}>HTML5 Ad Validator</h2>
+              <p style={styles.subtitle}>Upload an HTML5 creative ZIP → validate structure and size</p>
+            </header>
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>Upload HTML5 ZIP</h3>
+              <label style={styles.label}>
+                HTML5 Creative (ZIP)
+                <input
+                  type="file"
+                  accept=".zip"
+                  onChange={(e) => { setHtml5Zip(e.target.files?.[0] || null); setHtml5Result(null); setHtml5Error(null); }}
+                  style={styles.input}
+                />
+                <span style={styles.fileName}>{html5Zip?.name || 'No file'}</span>
+              </label>
+              <div style={{ ...styles.buttonRow, marginTop: '1rem' }}>
+                <button onClick={runHtml5Validate} disabled={html5Loading || !html5Zip} style={styles.button}>
+                  {html5Loading ? '…' : 'Validate'}
+                </button>
+              </div>
+              {html5Error && <p style={styles.error}>{html5Error}</p>}
+            </section>
+            {html5Result && (
+              <section style={styles.section}>
+                <h3 style={styles.sectionTitle}>Validation Result</h3>
+                <div style={styles.validationBox}>
+                  <p style={{ ...styles.meta, marginBottom: '0.5rem' }}>
+                    Valid: <strong style={{ color: html5Result.valid ? '#22c55e' : '#f87171' }}>{html5Result.valid ? 'Yes' : 'No'}</strong>
+                    {' · '}Files: {html5Result.file_count} · Index: {html5Result.index_path || '—'} · Initial load: ~{html5Result.initial_load_kb} KB
+                  </p>
+                  {html5Result.errors?.length > 0 && (
+                    <ul style={styles.validationList}>
+                      {html5Result.errors.map((e, i) => <li key={i} style={{ color: '#f87171' }}>{e}</li>)}
+                    </ul>
+                  )}
+                  {html5Result.warnings?.length > 0 && (
+                    <ul style={styles.validationList}>
+                      {html5Result.warnings.map((w, i) => <li key={i} style={{ color: '#fbbf24' }}>{w}</li>)}
+                    </ul>
+                  )}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        {view === 'vast' && (
+          <>
+            <header style={styles.header}>
+              <h2 style={styles.title}>VAST Tag Tester</h2>
+              <p style={styles.subtitle}>Paste a VAST tag URL → parse structure and preview video</p>
+            </header>
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>VAST URL</h3>
+              <input
+                type="url"
+                placeholder="https://example.com/vast.xml"
+                value={vastUrl}
+                onChange={(e) => { setVastUrl(e.target.value); setVastResult(null); setVastError(null); }}
+                style={{ ...styles.textInput, width: '100%', maxWidth: 500 }}
+              />
+              <div style={{ ...styles.buttonRow, marginTop: '1rem' }}>
+                <button onClick={runVastPreview} disabled={vastLoading || !vastUrl.trim()} style={styles.button}>
+                  {vastLoading ? '…' : 'Fetch & Parse'}
+                </button>
+              </div>
+              {vastError && <p style={styles.error}>{vastError}</p>}
+            </section>
+            {vastResult && (
+              <section style={styles.section}>
+                <h3 style={styles.sectionTitle}>VAST Structure</h3>
+                <div style={styles.vastResult}>
+                  {vastResult.media_files?.length > 0 && (
+                    <div style={styles.vastSection}>
+                      <h4 style={styles.vastTitle}>Video Preview</h4>
+                      <video
+                        controls
+                        style={{ maxWidth: '100%', maxHeight: 300, background: '#1e293b' }}
+                        src={vastResult.media_files[0].url}
+                      />
+                    </div>
+                  )}
+                  <div style={styles.vastSection}>
+                    <h4 style={styles.vastTitle}>Media Files ({vastResult.media_files?.length ?? 0})</h4>
+                    <ul style={styles.vastList}>
+                      {(vastResult.media_files || []).map((m, i) => (
+                        <li key={i} style={styles.vastLi}>
+                          <a href={m.url} target="_blank" rel="noopener noreferrer" style={styles.link}>{m.url}</a>
+                          {m.width && m.height && ` (${m.width}x${m.height})`}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  {vastResult.impressions?.length > 0 && (
+                    <div style={styles.vastSection}>
+                      <h4 style={styles.vastTitle}>Impressions</h4>
+                      <ul style={styles.vastList}>
+                        {vastResult.impressions.map((u, i) => (
+                          <li key={i} style={styles.vastLi}><a href={u} target="_blank" rel="noopener noreferrer" style={styles.link}>{u}</a></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {vastResult.click_through && (
+                    <div style={styles.vastSection}>
+                      <h4 style={styles.vastTitle}>Click-through</h4>
+                      <a href={vastResult.click_through} target="_blank" rel="noopener noreferrer" style={styles.link}>{vastResult.click_through}</a>
+                    </div>
+                  )}
+                  {(!vastResult.media_files?.length && !vastResult.impressions?.length && !vastResult.click_through) && (
+                    <p style={styles.meta}>No media files, impressions, or click-through found in VAST.</p>
+                  )}
+                </div>
+              </section>
+            )}
           </>
         )}
       </main>
@@ -583,6 +855,72 @@ const styles = {
   },
   compareLi: {
     marginBottom: '0.25rem',
+    wordBreak: 'break-all',
+  },
+  adTagPreview: {
+    marginBottom: '1.5rem',
+  },
+  scriptRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.75rem',
+    alignItems: 'center',
+    marginBottom: '0.75rem',
+  },
+  codeBlock: {
+    margin: 0,
+    padding: '1rem',
+    borderRadius: 8,
+    border: '1px solid #334155',
+    background: '#0f172a',
+    color: '#94a3b8',
+    fontSize: '0.8rem',
+    fontFamily: 'monospace',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-all',
+    maxHeight: 300,
+    overflowY: 'auto',
+  },
+  link: {
+    color: '#60a5fa',
+    fontSize: '0.9rem',
+  },
+  validationBox: {
+    padding: '1rem',
+    borderRadius: 8,
+    border: '1px solid #334155',
+    background: '#1e293b',
+  },
+  validationList: {
+    margin: '0.5rem 0 0',
+    paddingLeft: '1.25rem',
+    fontSize: '0.9rem',
+  },
+  vastResult: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1.5rem',
+  },
+  vastSection: {
+    padding: '1rem',
+    borderRadius: 8,
+    border: '1px solid #334155',
+    background: '#1e293b',
+  },
+  vastTitle: {
+    fontSize: '0.95rem',
+    fontWeight: 600,
+    margin: '0 0 0.5rem',
+    color: '#e2e8f0',
+  },
+  vastList: {
+    margin: 0,
+    paddingLeft: '1.25rem',
+    fontSize: '0.85rem',
+    color: '#94a3b8',
+  },
+  vastLi: {
+    marginBottom: '0.35rem',
     wordBreak: 'break-all',
   },
 }
